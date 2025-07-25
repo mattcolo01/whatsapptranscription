@@ -56,4 +56,10 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+
+    // Vosk library for speech recognition
+    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+
+    // Add JNA library dependency
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 }
