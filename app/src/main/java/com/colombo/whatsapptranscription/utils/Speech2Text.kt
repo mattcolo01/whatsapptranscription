@@ -14,6 +14,9 @@ class Speech2Text (
     private val tag = "Speech2Text"
     private var recognizer: Recognizer? = null
     private val sentenceAnalysisStatus = SentenceAnalysisStatus()
+    
+    // Keywords that trigger immediate processing (can be customized)
+    private val soccerWords = listOf("calcio", "goal", "partita", "squadra", "giocatore")
 
     init {
         StorageService.unpack(
@@ -40,6 +43,47 @@ class Speech2Text (
             onFinalResultAvailable(audioData)
         } else {
             onPartialResultAvailable(audioData)
+        }
+    }
+    
+    fun processCompleteAudio(audioData: ByteArray) {
+        try {
+            // Reset status for new audio
+            sentenceAnalysisStatus.reset()
+            sentenceAnalysisStatus.isApprovedYet = true
+            
+            // Process audio in chunks for better results
+            val chunkSize = 4096
+            var offset = 0
+            
+            while (offset < audioData.size) {
+                val remainingBytes = audioData.size - offset
+                val currentChunkSize = minOf(chunkSize, remainingBytes)
+                val chunk = audioData.sliceArray(offset until offset + currentChunkSize)
+                
+                recognizer?.acceptWaveForm(chunk, currentChunkSize)
+                offset += currentChunkSize
+            }
+            
+            // Get final result
+            recognizer?.finalResult?.let { resultJson ->
+                try {
+                    val textResult = org.json.JSONObject(resultJson).optString("text")
+                    if (textResult.isNotBlank()) {
+                        onSoccerWordDetected(audioData, textResult)
+                    } else {
+                        onLMAnalysisNeeded("No speech detected", audioData)
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to parse final result JSON", e)
+                    onLMAnalysisNeeded("Error processing audio", audioData)
+                }
+            } ?: run {
+                onLMAnalysisNeeded("No result from recognizer", audioData)
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing complete audio", e)
+            onLMAnalysisNeeded("Error: ${e.message}", audioData)
         }
     }
 
