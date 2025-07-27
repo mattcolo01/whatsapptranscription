@@ -62,4 +62,6 @@ dependencies {
 
     // Add JNA library dependency
     implementation("net.java.dev.jna:jna:5.13.0@aar")
+
+    implementation(libs.androidx.material.icons.extended)
 }
