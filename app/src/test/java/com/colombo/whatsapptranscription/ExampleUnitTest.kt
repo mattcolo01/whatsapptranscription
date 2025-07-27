@@ -1,7 +1,7 @@
 package com.colombo.whatsapptranscription
 
+import com.colombo.whatsapptranscription.utils.AudioProcessor
 import org.junit.Test
-
 import org.junit.Assert.*
 
 /**
@@ -13,5 +13,11 @@ class ExampleUnitTest {
     @Test
     fun addition_isCorrect() {
         assertEquals(4, 2 + 2)
+    }
+
+    @Test
+    fun audioProcessor_instantiation_isSuccessful() {
+        val audioProcessor = AudioProcessor()
+        assertNotNull(audioProcessor)
     }
 }
