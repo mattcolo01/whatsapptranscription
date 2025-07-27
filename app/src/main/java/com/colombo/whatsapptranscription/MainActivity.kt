@@ -46,6 +46,7 @@ import com.colombo.whatsapptranscription.ui.theme.WhatsappTranscriptionTheme
 import com.colombo.whatsapptranscription.utils.AudioProcessor
 import com.colombo.whatsapptranscription.utils.Speech2Text
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -215,13 +216,28 @@ class MainActivity : ComponentActivity() {
             }
         }
         
+        Log.d("MainActivity", "Starting overlay service with transcription: ${transcription.take(50)}...")
+        
         // Start overlay service
         val intent = Intent(this, OverlayService::class.java)
         intent.putExtra("transcription", transcription)
-        startService(intent)
         
-        // Minimize the app
-        moveTaskToBack(true)
+        try {
+            startService(intent)
+            Log.d("MainActivity", "Overlay service started successfully")
+            
+            // Show feedback to user
+            Toast.makeText(this, "Floating overlay opened", Toast.LENGTH_SHORT).show()
+            
+            // Minimize the app after a short delay to ensure service starts
+            lifecycleScope.launch {
+                delay(500)
+                moveTaskToBack(true)
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to start overlay service", e)
+            Toast.makeText(this, "Failed to open floating overlay: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun copyToClipboard(text: String) {

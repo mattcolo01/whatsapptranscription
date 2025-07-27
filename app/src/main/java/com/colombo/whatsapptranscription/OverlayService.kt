@@ -18,7 +18,9 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -48,14 +50,29 @@ class OverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         transcription = intent?.getStringExtra("transcription") ?: "No transcription available"
         
+        android.util.Log.d("OverlayService", "onStartCommand called with transcription: ${transcription.take(50)}...")
+        
         if (overlayView == null) {
             createOverlay()
+        } else {
+            android.util.Log.d("OverlayService", "Overlay view already exists")
         }
         
         return START_NOT_STICKY
     }
 
     private fun createOverlay() {
+        // Double-check permission before creating overlay
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!android.provider.Settings.canDrawOverlays(this)) {
+                android.util.Log.e("OverlayService", "Overlay permission not granted")
+                stopSelf()
+                return
+            }
+        }
+        
+        android.util.Log.d("OverlayService", "Creating overlay window")
+        
         val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
@@ -63,16 +80,24 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        // Convert dp to pixels for proper sizing
+        val displayMetrics = resources.displayMetrics
+        val widthDp = 320
+        val heightDp = 200
+        val widthPx = (widthDp * displayMetrics.density).toInt()
+        val heightPx = (heightDp * displayMetrics.density).toInt()
+
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            widthPx,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutFlag,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 100
+            x = (displayMetrics.widthPixels * 0.1).toInt()
+            y = (displayMetrics.heightPixels * 0.2).toInt()
         }
 
         // Create Compose view for the overlay
@@ -93,21 +118,49 @@ class OverlayService : Service() {
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
+        var isDragging = false
 
-        overlayView?.setOnTouchListener { _, event ->
+        overlayView?.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params.x
                     initialY = params.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
+                    isDragging = false
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).toInt()
-                    params.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager?.updateViewLayout(overlayView, params)
-                    true
+                    val deltaX = (event.rawX - initialTouchX).toInt()
+                    val deltaY = (event.rawY - initialTouchY).toInt()
+                    
+                    // Only start dragging if movement is significant (to allow button clicks)
+                    if (!isDragging && (kotlin.math.abs(deltaX) > 10 || kotlin.math.abs(deltaY) > 10)) {
+                        isDragging = true
+                    }
+                    
+                    if (isDragging) {
+                        params.x = initialX + deltaX
+                        params.y = initialY + deltaY
+                        
+                        // Keep within screen bounds
+                        params.x = params.x.coerceAtLeast(0)
+                        params.y = params.y.coerceAtLeast(0)
+                        params.x = (params.x).coerceAtMost(displayMetrics.widthPixels - widthPx)
+                        params.y = (params.y).coerceAtMost(displayMetrics.heightPixels - heightPx)
+                        
+                        windowManager?.updateViewLayout(overlayView, params)
+                    }
+                    isDragging
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (isDragging) {
+                        isDragging = false
+                        true
+                    } else {
+                        // Allow click events to propagate to child views
+                        false
+                    }
                 }
                 else -> false
             }
@@ -115,8 +168,10 @@ class OverlayService : Service() {
 
         try {
             windowManager?.addView(overlayView, params)
+            android.util.Log.d("OverlayService", "Overlay view added successfully")
         } catch (e: Exception) {
             // Handle permission not granted or other errors
+            android.util.Log.e("OverlayService", "Failed to add overlay view", e)
             stopSelf()
         }
     }
@@ -150,59 +205,75 @@ fun FloatingTranscriptionCard(
 ) {
     Card(
         modifier = Modifier
-            .width(300.dp)
-            .heightIn(min = 120.dp, max = 400.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+            .fillMaxWidth()
+            .heightIn(min = 140.dp, max = 300.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(12.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(12.dp)
         ) {
-            // Header
+            // Header with drag handle visual cue
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Audio Transcription",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Column {
+                    Text(
+                        text = "Audio Transcription",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Drag to move • Tap to interact",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
                 
                 IconButton(
                     onClick = onClose,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(28.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurface
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
                 }
             }
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            // Transcription text
-            Text(
-                text = transcription,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f, fill = false)
-            )
+            // Transcription text in scrollable container
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .heightIn(min = 60.dp, max = 180.dp)
+            ) {
+                Text(
+                    text = transcription,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                )
+            }
             
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             
             // Action button
             Button(
@@ -211,7 +282,8 @@ fun FloatingTranscriptionCard(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary
                 ),
-                contentPadding = PaddingValues(8.dp)
+                contentPadding = PaddingValues(vertical = 8.dp),
+                shape = RoundedCornerShape(8.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.ContentCopy,
