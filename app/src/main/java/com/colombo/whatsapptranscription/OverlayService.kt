@@ -48,26 +48,53 @@ class OverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        android.util.Log.d("OverlayService", "onStartCommand called")
+        
         transcription = intent?.getStringExtra("transcription") ?: "No transcription available"
         
-        android.util.Log.d("OverlayService", "onStartCommand called with transcription: ${transcription.take(50)}...")
+        android.util.Log.d("OverlayService", "Received transcription (${transcription.length} chars): ${transcription.take(50)}...")
         
         if (overlayView == null) {
+            android.util.Log.d("OverlayService", "Creating new overlay")
             createOverlay()
         } else {
-            android.util.Log.d("OverlayService", "Overlay view already exists")
+            android.util.Log.d("OverlayService", "Overlay view already exists, updating transcription")
+            // Update existing overlay with new transcription
+            updateOverlayContent()
         }
         
         return START_NOT_STICKY
     }
+    
+    private fun updateOverlayContent() {
+        (overlayView as? ComposeView)?.setContent {
+            WhatsappTranscriptionTheme(isPipMode = true) {
+                // Wrap in a Surface to ensure proper Material theme background
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background.copy(alpha = 0f)
+                ) {
+                    FloatingTranscriptionCard(
+                        transcription = transcription,
+                        onCopy = { copyToClipboard(transcription) },
+                        onClose = { stopOverlay() }
+                    )
+                }
+            }
+        }
+    }
 
     private fun createOverlay() {
+        android.util.Log.d("OverlayService", "createOverlay called")
+        
         // Double-check permission before creating overlay
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!android.provider.Settings.canDrawOverlays(this)) {
                 android.util.Log.e("OverlayService", "Overlay permission not granted")
                 stopSelf()
                 return
+            } else {
+                android.util.Log.d("OverlayService", "Overlay permission confirmed")
             }
         }
         
@@ -79,6 +106,8 @@ class OverlayService : Service() {
             @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
         }
+        
+        android.util.Log.d("OverlayService", "Using layout flag: $layoutFlag")
 
         // Convert dp to pixels for proper sizing
         val displayMetrics = resources.displayMetrics
@@ -86,13 +115,17 @@ class OverlayService : Service() {
         val heightDp = 200
         val widthPx = (widthDp * displayMetrics.density).toInt()
         val heightPx = (heightDp * displayMetrics.density).toInt()
+        
+        android.util.Log.d("OverlayService", "Overlay size: ${widthPx}x${heightPx} px (${widthDp}x${heightDp} dp)")
+        android.util.Log.d("OverlayService", "Screen size: ${displayMetrics.widthPixels}x${displayMetrics.heightPixels} px")
 
         val params = WindowManager.LayoutParams(
             widthPx,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            heightPx,
             layoutFlag,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -102,13 +135,22 @@ class OverlayService : Service() {
 
         // Create Compose view for the overlay
         overlayView = ComposeView(this).apply {
+            // Set explicit background to ensure proper rendering
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            
             setContent {
                 WhatsappTranscriptionTheme(isPipMode = true) {
-                    FloatingTranscriptionCard(
-                        transcription = transcription,
-                        onCopy = { copyToClipboard(transcription) },
-                        onClose = { stopOverlay() }
-                    )
+                    // Wrap in a Surface to ensure proper Material theme background
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background.copy(alpha = 0f)
+                    ) {
+                        FloatingTranscriptionCard(
+                            transcription = transcription,
+                            onCopy = { copyToClipboard(transcription) },
+                            onClose = { stopOverlay() }
+                        )
+                    }
                 }
             }
         }
@@ -167,8 +209,15 @@ class OverlayService : Service() {
         }
 
         try {
+            android.util.Log.d("OverlayService", "Adding overlay view to window manager")
             windowManager?.addView(overlayView, params)
             android.util.Log.d("OverlayService", "Overlay view added successfully")
+        } catch (e: SecurityException) {
+            android.util.Log.e("OverlayService", "SecurityException - overlay permission may have been revoked", e)
+            stopSelf()
+        } catch (e: IllegalStateException) {
+            android.util.Log.e("OverlayService", "IllegalStateException - invalid window state", e)
+            stopSelf()
         } catch (e: Exception) {
             // Handle permission not granted or other errors
             android.util.Log.e("OverlayService", "Failed to add overlay view", e)

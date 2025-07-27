@@ -66,7 +66,13 @@ class MainActivity : ComponentActivity() {
         
         setContent {
             WhatsappTranscriptionTheme(isPipMode = isPipMode) {
-                TranscriptionScreen()
+                TranscriptionScreen(
+                    onTestOverlay = {
+                        val testTranscription = "This is a test transcription to verify that the floating overlay mode is working correctly. The overlay should appear as a draggable window over other applications."
+                        pendingTranscription = testTranscription
+                        showDisplayModeDialog = true
+                    }
+                )
                 
                 // Display mode selection dialog
                 if (showDisplayModeDialog && pendingTranscription != null) {
@@ -205,15 +211,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun enterOverlayMode(transcription: String) {
+        Log.d("MainActivity", "enterOverlayMode called with transcription length: ${transcription.length}")
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!Settings.canDrawOverlays(this)) {
+                Log.w("MainActivity", "Overlay permission not granted, requesting permission")
                 // Request permission
                 val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, 
                     Uri.parse("package:$packageName"))
-                startActivity(intent)
-                Toast.makeText(this, "Please grant overlay permission and try again", Toast.LENGTH_LONG).show()
+                try {
+                    startActivity(intent)
+                    Toast.makeText(this, "Please grant overlay permission and try again", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Failed to open overlay permission settings", e)
+                    Toast.makeText(this, "Cannot open overlay permission settings: ${e.message}", Toast.LENGTH_LONG).show()
+                }
                 return
+            } else {
+                Log.d("MainActivity", "Overlay permission is granted")
             }
+        } else {
+            Log.d("MainActivity", "Android version < M, no overlay permission required")
         }
         
         Log.d("MainActivity", "Starting overlay service with transcription: ${transcription.take(50)}...")
@@ -223,16 +241,21 @@ class MainActivity : ComponentActivity() {
         intent.putExtra("transcription", transcription)
         
         try {
-            startService(intent)
-            Log.d("MainActivity", "Overlay service started successfully")
-            
-            // Show feedback to user
-            Toast.makeText(this, "Floating overlay opened", Toast.LENGTH_SHORT).show()
-            
-            // Minimize the app after a short delay to ensure service starts
-            lifecycleScope.launch {
-                delay(500)
-                moveTaskToBack(true)
+            val serviceStartResult = startService(intent)
+            if (serviceStartResult != null) {
+                Log.d("MainActivity", "Overlay service started successfully, result: $serviceStartResult")
+                
+                // Show feedback to user
+                Toast.makeText(this, "Floating overlay opened", Toast.LENGTH_SHORT).show()
+                
+                // Minimize the app after a short delay to ensure service starts
+                lifecycleScope.launch {
+                    delay(500)
+                    moveTaskToBack(true)
+                }
+            } else {
+                Log.e("MainActivity", "Failed to start overlay service - startService returned null")
+                Toast.makeText(this, "Failed to start overlay service", Toast.LENGTH_LONG).show()
             }
         } catch (e: Exception) {
             Log.e("MainActivity", "Failed to start overlay service", e)
@@ -249,7 +272,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TranscriptionScreen() {
+fun TranscriptionScreen(
+    onTestOverlay: () -> Unit = {}
+) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -356,6 +381,22 @@ fun TranscriptionScreen() {
                         }
                     }
                 }
+            }
+            
+            // Add test button for overlay functionality during development
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            OutlinedButton(
+                onClick = onTestOverlay,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PictureInPicture,
+                    contentDescription = "Test overlay",
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Test Overlay Mode")
             }
         }
     }
