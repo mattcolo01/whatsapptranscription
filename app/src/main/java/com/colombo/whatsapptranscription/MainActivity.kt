@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.util.Rational
 import android.widget.Toast
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,6 +53,8 @@ class MainActivity : ComponentActivity() {
     private var speech2Text: Speech2Text? = null
     private val audioProcessor = AudioProcessor()
     private var isPipMode by mutableStateOf(false)
+    private var showDisplayModeDialog by mutableStateOf(false)
+    private var pendingTranscription: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +66,26 @@ class MainActivity : ComponentActivity() {
         setContent {
             WhatsappTranscriptionTheme(isPipMode = isPipMode) {
                 TranscriptionScreen()
+                
+                // Display mode selection dialog
+                if (showDisplayModeDialog && pendingTranscription != null) {
+                    DisplayModeDialog(
+                        onPipMode = {
+                            showDisplayModeDialog = false
+                            enterPictureInPictureMode(pendingTranscription!!)
+                            pendingTranscription = null
+                        },
+                        onOverlayMode = {
+                            showDisplayModeDialog = false
+                            enterOverlayMode(pendingTranscription!!)
+                            pendingTranscription = null
+                        },
+                        onDismiss = {
+                            showDisplayModeDialog = false
+                            pendingTranscription = null
+                        }
+                    )
+                }
             }
         }
         
@@ -109,7 +134,9 @@ class MainActivity : ComponentActivity() {
                 }
                 
                 if (transcription.isNotEmpty()) {
-                    enterPictureInPictureMode(transcription)
+                    // Show user choice between PiP and overlay
+                    pendingTranscription = transcription
+                    showDisplayModeDialog = true
                 } else {
                     Toast.makeText(this@MainActivity, "Could not transcribe audio", Toast.LENGTH_LONG).show()
                 }
@@ -174,6 +201,27 @@ class MainActivity : ComponentActivity() {
                 // PiP may not be supported or allowed, just show in normal mode
             }
         }
+    }
+
+    private fun enterOverlayMode(transcription: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                // Request permission
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, 
+                    Uri.parse("package:$packageName"))
+                startActivity(intent)
+                Toast.makeText(this, "Please grant overlay permission and try again", Toast.LENGTH_LONG).show()
+                return
+            }
+        }
+        
+        // Start overlay service
+        val intent = Intent(this, OverlayService::class.java)
+        intent.putExtra("transcription", transcription)
+        startService(intent)
+        
+        // Minimize the app
+        moveTaskToBack(true)
     }
 
     private fun copyToClipboard(text: String) {
@@ -499,4 +547,119 @@ fun TranscriptionResultScreen(
             }
         }
     }
+}
+
+@Composable
+fun DisplayModeDialog(
+    onPipMode: () -> Unit,
+    onOverlayMode: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Choose Display Mode",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "How would you like to view the transcription?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Option 1: Picture-in-Picture
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureInPicture,
+                            contentDescription = "Picture in Picture",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Picture-in-Picture",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Small overlay window",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+                
+                // Option 2: Floating Overlay
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.OpenInNew,
+                            contentDescription = "Floating Overlay",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Floating Overlay",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Draggable popup window",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = onOverlayMode) {
+                    Text("Floating")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(onClick = onPipMode) {
+                    Text("Picture-in-Picture")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

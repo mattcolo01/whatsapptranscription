@@ -4,6 +4,8 @@
 
     <!-- Permission for reading shared files -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- Permission for system overlay (floating window) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="true"
@@ -33,6 +35,12 @@
                 <data android:mimeType="audio/*" />
             </intent-filter>
         </activity>
+        
+        <!-- Overlay service for floating transcription window -->
+        <service 
+            android:name=".OverlayService"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 
 </manifest>
