@@ -78,6 +78,9 @@ class MainActivity : ComponentActivity() {
     private fun processSharedAudio(uri: Uri) {
         lifecycleScope.launch {
             try {
+                // Show loading state
+                Toast.makeText(this@MainActivity, "Initializing speech recognizer...", Toast.LENGTH_SHORT).show()
+                
                 val transcription = withContext(Dispatchers.IO) {
                     transcribeAudio(uri)
                 }
@@ -98,6 +101,18 @@ class MainActivity : ComponentActivity() {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d("MainActivity", "Processing audio from URI: $uri")
+
+                // Wait for speech recognizer to be ready
+                Log.d("MainActivity", "Waiting for speech recognizer initialization...")
+                val isReady = speech2Text?.waitForInitialization() ?: false
+                
+                if (!isReady) {
+                    val error = speech2Text?.getInitializationError()
+                    Log.e("MainActivity", "Speech recognizer failed to initialize: $error")
+                    return@withContext "Error: Speech recognizer failed to initialize${error?.let { ": $it" } ?: ""}"
+                }
+                
+                Log.d("MainActivity", "Speech recognizer is ready, processing audio...")
 
                 // Process the audio file and convert to 16kHz PCM
                 val audioData = audioProcessor.processAudioFromUri(this@MainActivity, uri)
