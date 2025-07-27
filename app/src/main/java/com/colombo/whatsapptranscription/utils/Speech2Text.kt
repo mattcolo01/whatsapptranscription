@@ -23,11 +23,45 @@ class Speech2Text (context: android.content.Context) {
     }
 
     fun filterAudioData(audioData: ByteArray): String? {
-        val final = recognizer?.acceptWaveForm(audioData, audioData.size)
-        return if (final == true) {
-            onFinalResultAvailable()
-        } else {
-            onPartialResultAvailable()
+        return try {
+            Log.d(tag, "Processing ${audioData.size} bytes of PCM audio data")
+            
+            if (recognizer == null) {
+                Log.e(tag, "Recognizer not initialized")
+                return "Error: Speech recognizer not ready"
+            }
+            
+            // Process audio data with Vosk recognizer
+            val wasAccepted = recognizer?.acceptWaveForm(audioData, audioData.size) ?: false
+            Log.d(tag, "Audio data accepted by recognizer: $wasAccepted")
+            
+            // Always try to get final result after processing all data
+            recognizer?.finalResult()?.let { resultJson ->
+                try {
+                    val result = org.json.JSONObject(resultJson).optString("text", "")
+                    Log.d(tag, "Final transcription result: '$result'")
+                    return if (result.isNotBlank()) result else null
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to parse final result JSON", e)
+                }
+            }
+            
+            // If no final result, try partial result
+            recognizer?.partialResult?.let { resultJson ->
+                try {
+                    val result = org.json.JSONObject(resultJson).optString("text", "")
+                    Log.d(tag, "Partial transcription result: '$result'")
+                    return if (result.isNotBlank()) result else null
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to parse partial result JSON", e)
+                }
+            }
+            
+            Log.w(tag, "No transcription result available")
+            null
+        } catch (e: Exception) {
+            Log.e(tag, "Error processing audio data", e)
+            "Error during speech recognition: ${e.message}"
         }
     }
 

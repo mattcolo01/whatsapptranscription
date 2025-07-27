@@ -99,21 +99,29 @@ class MainActivity : ComponentActivity() {
             try {
                 Log.d("MainActivity", "Processing audio from URI: $uri")
 
-                // Process the audio file
+                // Process the audio file and convert to 16kHz PCM
                 val audioData = audioProcessor.processAudioFromUri(this@MainActivity, uri)
                 
                 if (audioData != null && audioData.isNotEmpty()) {
-                    Log.d("MainActivity", "Audio data size: ${audioData.size} bytes")
+                    Log.d("MainActivity", "Converted audio data size: ${audioData.size} bytes")
                     
-                    // Feed audio data to Speech2Text
-                    // Note: This is a simplified approach. In production, you'd need proper
-                    // audio format conversion to 16kHz PCM before feeding to Speech2Text
+                    // Feed properly formatted PCM data to Speech2Text
                     val result = speech2Text?.filterAudioData(audioData)
                     
-                    result?.takeIf { it.isNotBlank() } 
-                        ?: "Audio processed but no speech detected. The Vosk model expects 16kHz PCM audio."
+                    when {
+                        result.isNullOrBlank() -> {
+                            "No speech detected in the audio. Please ensure the audio contains clear speech."
+                        }
+                        result.startsWith("Error") -> {
+                            result
+                        }
+                        else -> {
+                            Log.d("MainActivity", "Transcription successful: $result")
+                            result
+                        }
+                    }
                 } else {
-                    "Error: Could not read audio file"
+                    "Error: Could not decode audio file. Please ensure it's a valid audio format."
                 }
             } catch (e: Exception) {
                 Log.e("MainActivity", "Transcription error", e)
